@@ -1,4 +1,3 @@
-// tui/form.go
 package tui
 
 import (
@@ -11,20 +10,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	// styling for list items
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().
-				PaddingLeft(2).
-				Foreground(lipgloss.Color("170"))
+// --- VIEWS ---
+// We use this to track which view is active.
+type currentView int
+
+const (
+	viewMain currentView = iota
+	viewPlatform
+	viewTopic
+	viewDifficulty
 )
 
-// item is our list element
+// --- STYLES ---
+var (
+	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
+	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+)
+
+// --- LIST ITEM & DELEGATE ---
 type item string
 
 func (i item) FilterValue() string { return string(i) }
 
-// itemDelegate renders each item
 type itemDelegate struct{}
 
 func (d itemDelegate) Height() int                               { return 1 }
@@ -36,44 +43,70 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 	str := fmt.Sprintf("%d. %s", index+1, i)
-
-	renderFn := itemStyle.Render
+	fn := itemStyle.Render
 	if index == m.Index() {
-		// highlight selected
-		renderFn = func(s ...string) string {
-			return selectedItemStyle.Render("> " + strings.Join(s, " "))
-		}
+		fn = func(s ...string) string { return selectedItemStyle.Render("> " + strings.Join(s, " ")) }
 	}
-	fmt.Fprint(w, renderFn(str))
+	fmt.Fprint(w, fn(str))
 }
 
-// formModel holds our Bubble Tea model
+// --- MODEL ---
+// The model now holds all lists and the current view state.
 type formModel struct {
-	list list.Model
+	currentView  currentView
+	mainMenu     list.Model
+	platformList list.Model
+	topicList    list.Model
+	difficultyList list.Model
 }
 
-// NewForm constructs it, with pagination disabled
 func NewForm() formModel {
-	items := []list.Item{
-		item("Platform"),
-		item("Topic"),
-		item("Difficulty"),
-	}
-
 	const defaultWidth = 40
-	const verticalPadding = 2 // 1 line of help + 1 margin
+	const verticalPadding = 2 // For help text
 
-	// compute listHeight at runtime
-	listHeight := len(items) + verticalPadding
+	// --- Create all the lists ---
+	delegate := itemDelegate{}
 
-	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
-	l.SetShowTitle(false)
-	l.SetShowStatusBar(false)
-	l.SetShowFilter(false)
-	l.SetShowHelp(true)
-	l.SetShowPagination(false) // ← disable dots/pages
+	// Main Menu
+	mainMenuItems := []list.Item{item("Platform"), item("Topic"), item("Difficulty")}
+	mainMenu := list.New(mainMenuItems, delegate, defaultWidth, len(mainMenuItems)+verticalPadding)
 
-	return formModel{list: l}
+	// Platform List
+	platformItems := []list.Item{item("Codeforces"), item("LeetCode"), item("AtCoder"), item("HackerRank"), item("CSES")}
+	platformList := list.New(platformItems, delegate, defaultWidth, len(platformItems)+verticalPadding)
+	platformList.Title = "Choose a Platform"
+
+	// Topic List
+	topicItems := []list.Item{
+		item("Ad-Hoc"), item("Binary Search"), item("Bit Manipulation"),
+		item("Data Structures"), item("DP"), item("Game Theory"),
+		item("Graphs"), item("Greedy"), item("Implementation"),
+		item("Math"), item("Strings"), item("Two Pointers"),
+	}
+	topicList := list.New(topicItems, delegate, defaultWidth, len(topicItems)+verticalPadding)
+	topicList.Title = "Choose a Topic"
+
+	// Difficulty List
+	difficultyItems := []list.Item{item("Easy"), item("Medium"), item("Hard")}
+	difficultyList := list.New(difficultyItems, delegate, defaultWidth, len(difficultyItems)+verticalPadding)
+	difficultyList.Title = "Choose a Difficulty"
+
+	// --- Configure all lists ---
+	lists := []*list.Model{&mainMenu, &platformList, &topicList, &difficultyList}
+	for _, l := range lists {
+		l.SetShowStatusBar(false)
+		l.SetShowFilter(false)
+		l.SetShowPagination(false)
+	}
+	mainMenu.SetShowTitle(false) // Only main menu has no title
+
+	return formModel{
+		currentView:  viewMain,
+		mainMenu:     mainMenu,
+		platformList: platformList,
+		topicList:    topicList,
+		difficultyList: difficultyList,
+	}
 }
 
 func (m formModel) Init() tea.Cmd {
@@ -81,23 +114,70 @@ func (m formModel) Init() tea.Cmd {
 }
 
 func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Top-level messages (quit and resize)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// only adjust width; keep the fixed height from NewForm
-		m.list.SetWidth(msg.Width)
+		m.mainMenu.SetWidth(msg.Width)
+		m.platformList.SetWidth(msg.Width)
+		m.topicList.SetWidth(msg.Width)
+		m.difficultyList.SetWidth(msg.Width)
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
+		switch msg.String() {
+		case "ctrl+c", "q":
 			return m, tea.Quit
+
+		// --- Navigation Logic ---
+		case "enter":
+			// If on main menu, switch to a sub-list view.
+			if m.currentView == viewMain {
+				selectedItem := m.mainMenu.SelectedItem().(item)
+				switch selectedItem {
+				case "Platform":
+					m.currentView = viewPlatform
+				case "Topic":
+					m.currentView = viewTopic
+				case "Difficulty":
+					m.currentView = viewDifficulty
+				}
+				return m, nil
+			}
+		case "tab":
+			// If in a sub-list, return to the main menu.
+			if m.currentView != viewMain {
+				m.currentView = viewMain
+				return m, nil
+			}
 		}
 	}
 
+	// Delegate messages to the list of the currently active view
 	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
+	switch m.currentView {
+	case viewPlatform:
+		m.platformList, cmd = m.platformList.Update(msg)
+	case viewTopic:
+		m.topicList, cmd = m.topicList.Update(msg)
+	case viewDifficulty:
+		m.difficultyList, cmd = m.difficultyList.Update(msg)
+	default: // viewMain
+		m.mainMenu, cmd = m.mainMenu.Update(msg)
+	}
 	return m, cmd
 }
 
 func (m formModel) View() string {
-	return "\n" + m.list.View()
+	// --- View Router ---
+	// Render the view of the currently active list.
+	switch m.currentView {
+	case viewPlatform:
+		return "\n" + m.platformList.View()
+	case viewTopic:
+		return "\n" + m.topicList.View()
+	case viewDifficulty:
+		return "\n" + m.difficultyList.View()
+	default: // viewMain
+		return "\n" + m.mainMenu.View()
+	}
 }
