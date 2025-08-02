@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/Harschmann/Todo-/model"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ... (VIEWS, STYLES, LIST ITEM & DELEGATE code remains the same) ...
 // --- VIEWS ---
 type currentView int
 
@@ -20,7 +22,7 @@ const (
 	viewPlatform
 	viewTopic
 	viewDifficulty
-	viewQuestionID // ADDED
+	viewQuestionID
 	viewTime
 	viewNotes
 )
@@ -67,7 +69,7 @@ type formModel struct {
 	platforms       list.Model
 	topics          list.Model
 	difficulty      list.Model
-	questionIDInput textinput.Model // ADDED
+	questionIDInput textinput.Model
 	timeInput       textinput.Model
 	notesInput      textinput.Model
 }
@@ -78,16 +80,16 @@ func NewForm() formModel {
 
 	subListDelegate := itemDelegate{}
 
-	// UPDATED: Main Menu now includes Question ID
+	// UPDATED: Changed "Submit" and added "Quit"
 	mainMenuItems := []list.Item{
 		item("Platform"), item("Topic"), item("Difficulty"),
 		item("Question ID"), item("Time Spent"), item("Notes"),
-		item("Submit"),
+		item("Submit & Add Another"),
+		item("Quit"),
 	}
 	mainMenu := list.New(mainMenuItems, subListDelegate, defaultWidth, len(mainMenuItems)+verticalPadding)
 	mainMenu.SetShowTitle(false)
 
-	// Sub-lists...
 	platformItems := []list.Item{item("Codeforces"), item("LeetCode"), item("AtCoder"), item("HackerRank"), item("CSES")}
 	platformList := list.New(platformItems, subListDelegate, defaultWidth, len(platformItems)+verticalPadding)
 	platformList.Title = "Choose a Platform"
@@ -112,7 +114,6 @@ func NewForm() formModel {
 		l.SetShowPagination(false)
 	}
 
-	// --- Text Inputs ---
 	questionIDInput := textinput.New()
 	questionIDInput.Placeholder = "e.g., 1337A or two-sum"
 	questionIDInput.CharLimit = 40
@@ -176,7 +177,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.currentView = viewTopic
 				case "Difficulty":
 					m.currentView = viewDifficulty
-				case "Question ID": // ADDED
+				case "Question ID":
 					m.currentView = viewQuestionID
 					m.questionIDInput.Focus()
 					m.timeInput.Blur()
@@ -191,7 +192,12 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.notesInput.Focus()
 					m.questionIDInput.Blur()
 					m.timeInput.Blur()
-				case "Submit":
+				// UPDATED: Logic for Submit and Quit
+				case "Submit & Add Another":
+					// TODO: Save m.logEntry to the database here.
+					// We return a brand new form model to reset the state.
+					return NewForm(), nil
+				case "Quit":
 					return m, tea.Quit
 				}
 				return m, nil
@@ -216,8 +222,20 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case viewQuestionID, viewTime, viewNotes: // UPDATED
+		case viewQuestionID, viewTime, viewNotes:
 			if msg.String() == "enter" || msg.String() == "tab" {
+				// Save the current input's value
+				switch m.currentView {
+				case viewQuestionID:
+					m.logEntry.QuestionID = m.questionIDInput.Value()
+				case viewTime:
+					t, _ := strconv.Atoi(m.timeInput.Value())
+					m.logEntry.TimeSpent = t
+				case viewNotes:
+					m.logEntry.Notes = m.notesInput.Value()
+				}
+
+				m.mainMenu.CursorDown()
 				m.currentView = viewMain
 				m.questionIDInput.Blur()
 				m.timeInput.Blur()
@@ -227,7 +245,6 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate messages to the active component
 	switch m.currentView {
 	case viewPlatform:
 		m.platforms, cmd = m.platforms.Update(msg)
@@ -235,7 +252,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.topics, cmd = m.topics.Update(msg)
 	case viewDifficulty:
 		m.difficulty, cmd = m.difficulty.Update(msg)
-	case viewQuestionID: // ADDED
+	case viewQuestionID:
 		m.questionIDInput, cmd = m.questionIDInput.Update(msg)
 	case viewTime:
 		m.timeInput, cmd = m.timeInput.Update(msg)
@@ -249,11 +266,10 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m formModel) View() string {
-	// UPDATED: Summary now includes Question ID
 	summary := fmt.Sprintf(
-		"Platform: %s\nTopic: %s\nDifficulty: %s\nQuestion ID: %s\nTime: %s\nNotes: %s",
+		"Platform: %s\nTopic: %s\nDifficulty: %s\nQuestion ID: %s\nTime: %d\nNotes: %s",
 		m.logEntry.Platform, m.logEntry.Topic, m.logEntry.Difficulty,
-		m.questionIDInput.Value(), m.timeInput.Value(), m.notesInput.Value(),
+		m.logEntry.QuestionID, m.logEntry.TimeSpent, m.logEntry.Notes,
 	)
 
 	var currentView string
@@ -264,7 +280,7 @@ func (m formModel) View() string {
 		currentView = m.topics.View()
 	case viewDifficulty:
 		currentView = m.difficulty.View()
-	case viewQuestionID: // ADDED
+	case viewQuestionID:
 		currentView = "Question ID:\n" + focusedStyle.Render(m.questionIDInput.View())
 	case viewTime:
 		currentView = "Time Spent (minutes):\n" + focusedStyle.Render(m.timeInput.View())
