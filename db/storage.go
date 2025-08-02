@@ -100,3 +100,27 @@ func DeleteLog(date time.Time) error {
 		return b.Delete(key)
 	})
 }
+
+// UpdateLog finds a log by its date and overwrites it with the new data.
+func UpdateLog(logEntry *model.Log) error {
+	return db.Update(func(tx *bbolt.Tx) error {
+		// Get the logs bucket
+		b := tx.Bucket(logBucket)
+
+		// Get the key for the log we want to update.
+		// It's crucial that the logEntry.Date field has not been changed.
+		key, err := logEntry.Date.MarshalText()
+		if err != nil {
+			return err
+		}
+
+		// Marshal the updated log entry into JSON
+		encoded, err := json.Marshal(logEntry)
+		if err != nil {
+			return err
+		}
+
+		// Save it to the bucket, overwriting the old value
+		return b.Put(key, encoded)
+	})
+}

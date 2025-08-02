@@ -97,6 +97,8 @@ type formModel struct {
 	timeInput       textinput.Model
 	notesInput      textinput.Model
 	errorMsg        string
+	isEditing       bool
+	editingLogDate  time.Time
 }
 
 type clearErrorMsg struct{}
@@ -124,6 +126,7 @@ func NewForm() formModel {
 	platformItems := []list.Item{menuItem("Codeforces"), menuItem("LeetCode"), menuItem("AtCoder"), menuItem("HackerRank"), menuItem("CSES")}
 	platformList := list.New(platformItems, subListDelegate, defaultWidth, len(platformItems)+listPadding)
 	platformList.Title = "Choose a Platform"
+
 	topicItems := []list.Item{
 		menuItem("Ad-Hoc"), menuItem("Binary Search"), menuItem("Bit Manipulation"),
 		menuItem("Data Structures"), menuItem("DP"), menuItem("Game Theory"),
@@ -132,6 +135,7 @@ func NewForm() formModel {
 	}
 	topicList := list.New(topicItems, subListDelegate, defaultWidth, len(topicItems)+listPadding)
 	topicList.Title = "Choose a Topic"
+
 	difficultyItems := []list.Item{menuItem("Easy"), menuItem("Medium"), menuItem("Hard")}
 	difficultyList := list.New(difficultyItems, subListDelegate, defaultWidth, len(difficultyItems)+listPadding)
 	difficultyList.Title = "Choose a Difficulty"
@@ -152,9 +156,10 @@ func NewForm() formModel {
 	logsList := list.New(logItems, logDelegate, defaultWidth, 14)
 	logsList.Title = "Saved Logs"
 
-	// CORRECTED: Simplified and corrected way to add help text
+	// CORRECTED: Simplified and correct way to add help text
 	logsList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
+			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "delete")),
 		}
 	}
@@ -163,10 +168,12 @@ func NewForm() formModel {
 	questionIDInput.Placeholder = "e.g., 1337A or two-sum"
 	questionIDInput.CharLimit = 40
 	questionIDInput.Width = 40
+
 	timeInput := textinput.New()
 	timeInput.Placeholder = "e.g., 45"
 	timeInput.CharLimit = 3
 	timeInput.Width = 20
+
 	notesInput := textinput.New()
 	notesInput.Placeholder = "e.g., Used two pointers"
 	notesInput.CharLimit = 100
@@ -182,6 +189,7 @@ func NewForm() formModel {
 		questionIDInput: questionIDInput,
 		timeInput:       timeInput,
 		notesInput:      notesInput,
+		isEditing:       false,
 	}
 
 	lists := []*list.Model{&m.mainMenu, &m.platforms, &m.topics, &m.difficulty, &m.logsList}
@@ -257,10 +265,19 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = "Error: Please fill out all fields before submitting."
 						return m, clearErrorAfter(2 * time.Second)
 					}
-					if err := db.SaveLog(&m.logEntry); err != nil {
-						log.Fatal(err)
+					if m.isEditing {
+						m.logEntry.Date = m.editingLogDate
+						if err := db.UpdateLog(&m.logEntry); err != nil {
+							log.Fatal(err)
+						}
+					} else {
+						if err := db.SaveLog(&m.logEntry); err != nil {
+							log.Fatal(err)
+						}
 					}
-					return NewForm(), nil
+					freshModel := NewForm()
+					freshModel.currentView = viewLogs
+					return freshModel, tea.ClearScreen
 				case "View Logs":
 					m.currentView = viewLogs
 				}
@@ -297,6 +314,16 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selected := m.logsList.SelectedItem().(logListItem)
 				m.selectedLog = model.Log(selected)
 				m.currentView = viewConfirmDelete
+				return m, nil
+			case "e":
+				selected := m.logsList.SelectedItem().(logListItem)
+				m.isEditing = true
+				m.editingLogDate = selected.Date
+				m.logEntry = model.Log(selected)
+				m.questionIDInput.SetValue(selected.QuestionID)
+				m.timeInput.SetValue(strconv.Itoa(selected.TimeSpent))
+				m.notesInput.SetValue(selected.Notes)
+				m.currentView = viewMain
 				return m, nil
 			case "tab":
 				m.currentView = viewMain
@@ -388,10 +415,16 @@ func (m formModel) View() string {
 		)
 		b.WriteString(detailsStyle.Render(question) + "\n\n(y/n)")
 	default:
+		title := "--- Your New Log ---"
+		if m.isEditing {
+			title = fmt.Sprintf("--- Editing Log (%s) ---", m.logEntry.QuestionID)
+		}
 		summary := fmt.Sprintf(
 			"Platform: %s\nTopic: %s\nDifficulty: %s\nQuestion ID: %s\nTime: %d\nNotes: %s",
 			m.logEntry.Platform, m.logEntry.Topic, m.logEntry.Difficulty,
-			m.logEntry.QuestionID, m.logEntry.TimeSpent, m.logEntry.Notes,
+			m.questionIDInput.Value(),
+			m.logEntry.TimeSpent,
+			m.notesInput.Value(),
 		)
 		var currentInputView string
 		switch m.currentView {
@@ -406,12 +439,11 @@ func (m formModel) View() string {
 		case viewTime:
 			currentInputView = "Time Spent (minutes):\n" + focusedStyle.Render(m.timeInput.View())
 		case viewNotes:
-			// CORRECTED: The typo is fixed here.
 			currentInputView = "Notes:\n" + focusedStyle.Render(m.notesInput.View())
 		default: // viewMain
 			currentInputView = m.mainMenu.View()
 		}
-		b.WriteString(summaryStyle.Render(summary) + "\n\n" + currentInputView)
+		b.WriteString(summaryStyle.Render(title+"\n"+summary) + "\n\n" + currentInputView)
 	}
 
 	if m.errorMsg != "" {
