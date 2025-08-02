@@ -1,115 +1,103 @@
+// tui/form.go
 package tui
 
 import (
+	"fmt"
+	"io"
+	"strings"
+
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// We need a helper type for our list items that satisfies the list.Item interface.
+var (
+	// styling for list items
+	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
+	selectedItemStyle = lipgloss.NewStyle().
+				PaddingLeft(2).
+				Foreground(lipgloss.Color("170"))
+)
+
+// item is our list element
 type item string
 
 func (i item) FilterValue() string { return string(i) }
 
-// addFormModel is the Bubbletea model for our "Add Log" form.
-type addFormModel struct {
-	// A slice of lists for our choice-based fields.
-	lists []list.Model
+// itemDelegate renders each item
+type itemDelegate struct{}
 
-	// A slice of text inputs for our form fields.
-	inputs []textinput.Model
+func (d itemDelegate) Height() int                               { return 1 }
+func (d itemDelegate) Spacing() int                              { return 0 }
+func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd    { return nil }
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(item)
+	if !ok {
+		return
+	}
+	str := fmt.Sprintf("%d. %s", index+1, i)
 
-	// focused tracks which component is currently in focus.
-	// 0-2 for lists (Platform, Topic, Difficulty), 3-4 for inputs (Time, Notes)
-	focused int
+	renderFn := itemStyle.Render
+	if index == m.Index() {
+		// highlight selected
+		renderFn = func(s ...string) string {
+			return selectedItemStyle.Render("> " + strings.Join(s, " "))
+		}
+	}
+	fmt.Fprint(w, renderFn(str))
 }
 
-// NewAddForm creates a new model with all the necessary fields initialized.
-func NewAddForm() addFormModel {
-	m := addFormModel{
-		lists:  make([]list.Model, 3),    // For Platform, Topic, Difficulty
-		inputs: make([]textinput.Model, 2), // For Time Spent & Notes
-	}
-
-	// ---- LISTS INITIALIZATION ----
-	platforms := []list.Item{
-		item("Codeforces"),
-		item("LeetCode"),
-		item("AtCoder"),
-		item("HackerRank"),
-		item("CSES"),
-	}
-
-	// common cp topics
-	topics := []list.Item{
-		item("Ad-Hoc"),
-		item("Binary Search"),
-		item("Bit Manipulation"),
-		item("Combinatorics"),
-		item("Data Structures"),
-		item("DP (Dynamic Programming)"),
-		item("Game Theory"),
-		item("Geometry"),
-		item("Graph Theory"),
-		item("Greedy"),
-		item("Implementation"),
-		item("Math & Number Theory"),
-		item("String Algorithms"),
-		item("Two Pointers"),
-	}
-
-	difficulties := []list.Item{
-		item("Easy"),
-		item("Medium"),
-		item("Hard"),
-		item("Contest-Specific"), // For platform ratings like 1600, Div2C etc.
-	}
-
-	m.lists[0] = list.New(platforms, list.NewDefaultDelegate(), 0, 0)
-	m.lists[1] = list.New(topics, list.NewDefaultDelegate(), 0, 0)
-	m.lists[2] = list.New(difficulties, list.NewDefaultDelegate(), 0, 0)
-
-	m.lists[0].Title = "Platform"
-	m.lists[1].Title = "Topic"
-	m.lists[2].Title = "Difficulty"
-
-	// ---- TEXT INPUTS INITIALIZATION ----
-	var t textinput.Model
-
-	t = textinput.New()
-	t.Placeholder = "Time in minutes (e.g., 60)"
-	t.Focus() // Set the first field as focused
-	m.inputs[0] = t
-
-	t = textinput.New()
-	t.Placeholder = "Any notes about the solution..."
-	m.inputs[1] = t
-
-	// ---- SET INITIAL FOCUS ----
-	m.focused = 0 // Start by focusing the first list (Platform)
-
-	return m
+// formModel holds our Bubble Tea model
+type formModel struct {
+	list list.Model
 }
 
-// Init is the first command that is run when the program starts.
-func (m addFormModel) Init() tea.Cmd {
-	return textinput.Blink
+// NewForm constructs it, with pagination disabled
+func NewForm() formModel {
+	items := []list.Item{
+		item("Platform"),
+		item("Topic"),
+		item("Difficulty"),
+	}
+
+	const defaultWidth = 40
+	const verticalPadding = 2 // 1 line of help + 1 margin
+
+	// compute listHeight at runtime
+	listHeight := len(items) + verticalPadding
+
+	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
+	l.SetShowTitle(false)
+	l.SetShowStatusBar(false)
+	l.SetShowFilter(false)
+	l.SetShowHelp(true)
+	l.SetShowPagination(false) // ← disable dots/pages
+
+	return formModel{list: l}
 }
 
-// Update will be filled in the next steps.
-func (m addFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// For now, we only handle quitting.
+func (m formModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// only adjust width; keep the fixed height from NewForm
+		m.list.SetWidth(msg.Width)
+		return m, nil
+
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		if msg.String() == "ctrl+c" || msg.String() == "q" {
 			return m, tea.Quit
 		}
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
 }
 
-// View will be filled in the next steps.
-func (m addFormModel) View() string {
-	// This is just a placeholder for now.
-	return "Form components initialized. Ready to build the View.\n\n(Press ctrl+c to quit)"
+func (m formModel) View() string {
+	return "\n" + m.list.View()
 }
