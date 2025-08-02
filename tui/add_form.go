@@ -75,12 +75,7 @@ type logListItem model.Log
 func (l logListItem) FilterValue() string { return l.QuestionID }
 func (l logListItem) Title() string       { return l.QuestionID }
 func (l logListItem) Description() string {
-	notes := l.Notes
-	if len(notes) > 30 {
-		notes = notes[:27] + "..."
-	}
-	return fmt.Sprintf("%s | %s | %s | %s | Notes: %s",
-		l.Platform, l.Topic, l.Difficulty, l.Date.Format("2006-01-02"), notes)
+	return fmt.Sprintf("%s | %s | %s | %s", l.Platform, l.Topic, l.Difficulty, l.Date.Format("2006-01-02"))
 }
 
 // --- MODEL ---
@@ -118,6 +113,7 @@ func NewForm() formModel {
 		menuItem("Question ID"), menuItem("Time Spent"), menuItem("Notes"),
 		menuItem("Submit & Add Another"),
 		menuItem("View Logs"),
+		menuItem("Quit"),
 	}
 	mainMenu := list.New(mainMenuItems, menuItemDelegate{}, defaultWidth, len(mainMenuItems)+listPadding)
 	mainMenu.SetShowTitle(false)
@@ -155,8 +151,6 @@ func NewForm() formModel {
 	logDelegate.Styles.DimmedDesc = descriptionStyle
 	logsList := list.New(logItems, logDelegate, defaultWidth, 14)
 	logsList.Title = "Saved Logs"
-
-	// CORRECTED: Simplified and correct way to add help text
 	logsList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
@@ -275,11 +269,12 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							log.Fatal(err)
 						}
 					}
-					freshModel := NewForm()
-					freshModel.currentView = viewLogs
-					return freshModel, tea.ClearScreen
+					// CORRECTED: This now returns a fresh form, which starts at the main menu.
+					return NewForm(), tea.ClearScreen
 				case "View Logs":
 					m.currentView = viewLogs
+				case "Quit":
+					return m, tea.Quit
 				}
 				return m, nil
 			}
