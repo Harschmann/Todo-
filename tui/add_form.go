@@ -3,17 +3,20 @@ package tui
 import (
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Harschmann/Todo-/db"
 	"github.com/Harschmann/Todo-/model"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ... (VIEWS, STYLES, LIST ITEM & DELEGATE code remains the same) ...
 // --- VIEWS ---
 type currentView int
 
@@ -25,6 +28,9 @@ const (
 	viewQuestionID
 	viewTime
 	viewNotes
+	viewLogs
+	viewLogDetails
+	viewConfirmDelete
 )
 
 // --- STYLES ---
@@ -36,20 +42,23 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("62")).
 				Padding(0, 1)
+	descriptionStyle = lipgloss.NewStyle().Faint(true)
+	detailsStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2)
+	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 )
 
-// --- LIST ITEM & DELEGATE ---
-type item string
+// --- LIST ITEMS & DELEGATES ---
+type menuItem string
 
-func (i item) FilterValue() string { return string(i) }
+func (i menuItem) FilterValue() string { return string(i) }
 
-type itemDelegate struct{}
+type menuItemDelegate struct{}
 
-func (d itemDelegate) Height() int                             { return 1 }
-func (d itemDelegate) Spacing() int                            { return 0 }
-func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	i, ok := listItem.(item)
+func (d menuItemDelegate) Height() int                             { return 1 }
+func (d menuItemDelegate) Spacing() int                            { return 0 }
+func (d menuItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d menuItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(menuItem)
 	if !ok {
 		return
 	}
@@ -61,84 +70,128 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, fn(str))
 }
 
+type logListItem model.Log
+
+func (l logListItem) FilterValue() string { return l.QuestionID }
+func (l logListItem) Title() string       { return l.QuestionID }
+func (l logListItem) Description() string {
+	notes := l.Notes
+	if len(notes) > 30 {
+		notes = notes[:27] + "..."
+	}
+	return fmt.Sprintf("%s | %s | %s | %s | Notes: %s",
+		l.Platform, l.Topic, l.Difficulty, l.Date.Format("2006-01-02"), notes)
+}
+
 // --- MODEL ---
 type formModel struct {
 	currentView     currentView
 	logEntry        model.Log
+	selectedLog     model.Log
 	mainMenu        list.Model
 	platforms       list.Model
 	topics          list.Model
 	difficulty      list.Model
+	logsList        list.Model
 	questionIDInput textinput.Model
 	timeInput       textinput.Model
 	notesInput      textinput.Model
+	errorMsg        string
+}
+
+type clearErrorMsg struct{}
+
+func clearErrorAfter(t time.Duration) tea.Cmd {
+	return tea.Tick(t, func(_ time.Time) tea.Msg {
+		return clearErrorMsg{}
+	})
 }
 
 func NewForm() formModel {
 	const defaultWidth = 40
-	const verticalPadding = 2
+	const listPadding = 2
 
-	subListDelegate := itemDelegate{}
-
-	// UPDATED: Changed "Submit" and added "Quit"
 	mainMenuItems := []list.Item{
-		item("Platform"), item("Topic"), item("Difficulty"),
-		item("Question ID"), item("Time Spent"), item("Notes"),
-		item("Submit & Add Another"),
-		item("Quit"),
+		menuItem("Platform"), menuItem("Topic"), menuItem("Difficulty"),
+		menuItem("Question ID"), menuItem("Time Spent"), menuItem("Notes"),
+		menuItem("Submit & Add Another"),
+		menuItem("View Logs"),
 	}
-	mainMenu := list.New(mainMenuItems, subListDelegate, defaultWidth, len(mainMenuItems)+verticalPadding)
+	mainMenu := list.New(mainMenuItems, menuItemDelegate{}, defaultWidth, len(mainMenuItems)+listPadding)
 	mainMenu.SetShowTitle(false)
 
-	platformItems := []list.Item{item("Codeforces"), item("LeetCode"), item("AtCoder"), item("HackerRank"), item("CSES")}
-	platformList := list.New(platformItems, subListDelegate, defaultWidth, len(platformItems)+verticalPadding)
+	subListDelegate := menuItemDelegate{}
+	platformItems := []list.Item{menuItem("Codeforces"), menuItem("LeetCode"), menuItem("AtCoder"), menuItem("HackerRank"), menuItem("CSES")}
+	platformList := list.New(platformItems, subListDelegate, defaultWidth, len(platformItems)+listPadding)
 	platformList.Title = "Choose a Platform"
-
 	topicItems := []list.Item{
-		item("Ad-Hoc"), item("Binary Search"), item("Bit Manipulation"),
-		item("Data Structures"), item("DP"), item("Game Theory"),
-		item("Graphs"), item("Greedy"), item("Implementation"),
-		item("Math"), item("Strings"), item("Two Pointers"),
+		menuItem("Ad-Hoc"), menuItem("Binary Search"), menuItem("Bit Manipulation"),
+		menuItem("Data Structures"), menuItem("DP"), menuItem("Game Theory"),
+		menuItem("Graphs"), menuItem("Greedy"), menuItem("Implementation"),
+		menuItem("Math"), menuItem("Strings"), menuItem("Two Pointers"),
 	}
-	topicList := list.New(topicItems, subListDelegate, defaultWidth, len(topicItems)+verticalPadding)
+	topicList := list.New(topicItems, subListDelegate, defaultWidth, len(topicItems)+listPadding)
 	topicList.Title = "Choose a Topic"
-
-	difficultyItems := []list.Item{item("Easy"), item("Medium"), item("Hard")}
-	difficultyList := list.New(difficultyItems, subListDelegate, defaultWidth, len(difficultyItems)+verticalPadding)
+	difficultyItems := []list.Item{menuItem("Easy"), menuItem("Medium"), menuItem("Hard")}
+	difficultyList := list.New(difficultyItems, subListDelegate, defaultWidth, len(difficultyItems)+listPadding)
 	difficultyList.Title = "Choose a Difficulty"
 
-	lists := []*list.Model{&mainMenu, &platformList, &topicList, &difficultyList}
-	for _, l := range lists {
-		l.SetShowStatusBar(false)
-		l.SetShowFilter(false)
-		l.SetShowPagination(false)
+	allLogs, err := db.GetAllLogs()
+	if err != nil {
+		allLogs = []model.Log{}
+	}
+	logItems := make([]list.Item, len(allLogs))
+	for i, lg := range allLogs {
+		logItems[i] = logListItem(lg)
+	}
+	logDelegate := list.NewDefaultDelegate()
+	logDelegate.Styles.SelectedTitle = selectedItemStyle
+	logDelegate.Styles.SelectedDesc = descriptionStyle
+	logDelegate.Styles.NormalDesc = descriptionStyle
+	logDelegate.Styles.DimmedDesc = descriptionStyle
+	logsList := list.New(logItems, logDelegate, defaultWidth, 14)
+	logsList.Title = "Saved Logs"
+
+	// CORRECTED: Simplified and corrected way to add help text
+	logsList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "delete")),
+		}
 	}
 
 	questionIDInput := textinput.New()
 	questionIDInput.Placeholder = "e.g., 1337A or two-sum"
 	questionIDInput.CharLimit = 40
 	questionIDInput.Width = 40
-
 	timeInput := textinput.New()
 	timeInput.Placeholder = "e.g., 45"
 	timeInput.CharLimit = 3
 	timeInput.Width = 20
-
 	notesInput := textinput.New()
 	notesInput.Placeholder = "e.g., Used two pointers"
 	notesInput.CharLimit = 100
 	notesInput.Width = 50
 
-	return formModel{
+	m := formModel{
 		currentView:     viewMain,
 		mainMenu:        mainMenu,
 		platforms:       platformList,
 		topics:          topicList,
 		difficulty:      difficultyList,
+		logsList:        logsList,
 		questionIDInput: questionIDInput,
 		timeInput:       timeInput,
 		notesInput:      notesInput,
 	}
+
+	lists := []*list.Model{&m.mainMenu, &m.platforms, &m.topics, &m.difficulty, &m.logsList}
+	for _, l := range lists {
+		l.SetShowStatusBar(false)
+		l.SetShowFilter(false)
+		l.SetShowPagination(false)
+	}
+
+	return m
 }
 
 func (m formModel) Init() tea.Cmd {
@@ -149,27 +202,30 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case clearErrorMsg:
+		m.errorMsg = ""
+		return m, nil
 	case tea.WindowSizeMsg:
 		w := msg.Width - 4
+		h := msg.Height - 8
 		m.mainMenu.SetWidth(w)
 		m.platforms.SetWidth(w)
 		m.topics.SetWidth(w)
 		m.difficulty.SetWidth(w)
+		m.logsList.SetSize(w, h)
 		m.questionIDInput.Width = w
 		m.timeInput.Width = w
 		m.notesInput.Width = w
 		return m, nil
-
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		if msg.String() == "ctrl+c" || msg.String() == "ctrl+q" {
 			return m, tea.Quit
 		}
 
 		switch m.currentView {
 		case viewMain:
 			if msg.String() == "enter" {
-				selected := m.mainMenu.SelectedItem().(item)
+				selected := m.mainMenu.SelectedItem().(menuItem)
 				switch selected {
 				case "Platform":
 					m.currentView = viewPlatform
@@ -192,13 +248,21 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.notesInput.Focus()
 					m.questionIDInput.Blur()
 					m.timeInput.Blur()
-				// UPDATED: Logic for Submit and Quit
 				case "Submit & Add Another":
-					// TODO: Save m.logEntry to the database here.
-					// We return a brand new form model to reset the state.
+					m.logEntry.QuestionID = m.questionIDInput.Value()
+					t, _ := strconv.Atoi(m.timeInput.Value())
+					m.logEntry.TimeSpent = t
+					m.logEntry.Notes = m.notesInput.Value()
+					if m.logEntry.Platform == "" || m.logEntry.Topic == "" || m.logEntry.Difficulty == "" || m.logEntry.QuestionID == "" {
+						m.errorMsg = "Error: Please fill out all fields before submitting."
+						return m, clearErrorAfter(2 * time.Second)
+					}
+					if err := db.SaveLog(&m.logEntry); err != nil {
+						log.Fatal(err)
+					}
 					return NewForm(), nil
-				case "Quit":
-					return m, tea.Quit
+				case "View Logs":
+					m.currentView = viewLogs
 				}
 				return m, nil
 			}
@@ -207,11 +271,11 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "enter" {
 				switch m.currentView {
 				case viewPlatform:
-					m.logEntry.Platform = m.platforms.SelectedItem().(item).FilterValue()
+					m.logEntry.Platform = m.platforms.SelectedItem().(menuItem).FilterValue()
 				case viewTopic:
-					m.logEntry.Topic = m.topics.SelectedItem().(item).FilterValue()
+					m.logEntry.Topic = m.topics.SelectedItem().(menuItem).FilterValue()
 				case viewDifficulty:
-					m.logEntry.Difficulty = m.difficulty.SelectedItem().(item).FilterValue()
+					m.logEntry.Difficulty = m.difficulty.SelectedItem().(menuItem).FilterValue()
 				}
 				m.mainMenu.CursorDown()
 				m.currentView = viewMain
@@ -222,9 +286,45 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case viewLogs:
+			switch msg.String() {
+			case "enter":
+				selected := m.logsList.SelectedItem().(logListItem)
+				m.selectedLog = model.Log(selected)
+				m.currentView = viewLogDetails
+				return m, nil
+			case "ctrl+d":
+				selected := m.logsList.SelectedItem().(logListItem)
+				m.selectedLog = model.Log(selected)
+				m.currentView = viewConfirmDelete
+				return m, nil
+			case "tab":
+				m.currentView = viewMain
+				return m, nil
+			}
+
+		case viewLogDetails:
+			if msg.String() != "" {
+				m.currentView = viewLogs
+				return m, nil
+			}
+
+		case viewConfirmDelete:
+			switch msg.String() {
+			case "y", "Y":
+				if err := db.DeleteLog(m.selectedLog.Date); err != nil {
+					log.Fatal(err)
+				}
+				freshModel := NewForm()
+				freshModel.currentView = viewLogs
+				return freshModel, tea.ClearScreen
+			case "n", "N", "esc":
+				m.currentView = viewLogs
+				return m, nil
+			}
+
 		case viewQuestionID, viewTime, viewNotes:
 			if msg.String() == "enter" || msg.String() == "tab" {
-				// Save the current input's value
 				switch m.currentView {
 				case viewQuestionID:
 					m.logEntry.QuestionID = m.questionIDInput.Value()
@@ -234,7 +334,6 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case viewNotes:
 					m.logEntry.Notes = m.notesInput.Value()
 				}
-
 				m.mainMenu.CursorDown()
 				m.currentView = viewMain
 				m.questionIDInput.Blur()
@@ -245,6 +344,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Delegate messages
 	switch m.currentView {
 	case viewPlatform:
 		m.platforms, cmd = m.platforms.Update(msg)
@@ -258,6 +358,8 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.timeInput, cmd = m.timeInput.Update(msg)
 	case viewNotes:
 		m.notesInput, cmd = m.notesInput.Update(msg)
+	case viewLogs:
+		m.logsList, cmd = m.logsList.Update(msg)
 	default: // viewMain
 		m.mainMenu, cmd = m.mainMenu.Update(msg)
 	}
@@ -266,29 +368,55 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m formModel) View() string {
-	summary := fmt.Sprintf(
-		"Platform: %s\nTopic: %s\nDifficulty: %s\nQuestion ID: %s\nTime: %d\nNotes: %s",
-		m.logEntry.Platform, m.logEntry.Topic, m.logEntry.Difficulty,
-		m.logEntry.QuestionID, m.logEntry.TimeSpent, m.logEntry.Notes,
-	)
+	var b strings.Builder
 
-	var currentView string
 	switch m.currentView {
-	case viewPlatform:
-		currentView = m.platforms.View()
-	case viewTopic:
-		currentView = m.topics.View()
-	case viewDifficulty:
-		currentView = m.difficulty.View()
-	case viewQuestionID:
-		currentView = "Question ID:\n" + focusedStyle.Render(m.questionIDInput.View())
-	case viewTime:
-		currentView = "Time Spent (minutes):\n" + focusedStyle.Render(m.timeInput.View())
-	case viewNotes:
-		currentView = "Notes:\n" + focusedStyle.Render(m.notesInput.View())
-	default: // viewMain
-		currentView = m.mainMenu.View()
+	case viewLogs:
+		b.WriteString(m.logsList.View())
+	case viewLogDetails:
+		details := fmt.Sprintf(
+			"Question ID: %s\nPlatform:    %s\nTopic:       %s\nDifficulty:  %s\nDate:        %s\nTime Spent:  %d mins\n\nNotes:\n%s",
+			m.selectedLog.QuestionID, m.selectedLog.Platform, m.selectedLog.Topic, m.selectedLog.Difficulty,
+			m.selectedLog.Date.Format("2006-01-02"), m.selectedLog.TimeSpent, m.selectedLog.Notes,
+		)
+		b.WriteString(detailsStyle.Render(details) + "\n\n(Press any key to return to list)")
+
+	case viewConfirmDelete:
+		question := fmt.Sprintf("Are you sure you want to delete this log?\n\n%s\n%s",
+			m.selectedLog.QuestionID,
+			m.selectedLog.Platform,
+		)
+		b.WriteString(detailsStyle.Render(question) + "\n\n(y/n)")
+	default:
+		summary := fmt.Sprintf(
+			"Platform: %s\nTopic: %s\nDifficulty: %s\nQuestion ID: %s\nTime: %d\nNotes: %s",
+			m.logEntry.Platform, m.logEntry.Topic, m.logEntry.Difficulty,
+			m.logEntry.QuestionID, m.logEntry.TimeSpent, m.logEntry.Notes,
+		)
+		var currentInputView string
+		switch m.currentView {
+		case viewPlatform:
+			currentInputView = m.platforms.View()
+		case viewTopic:
+			currentInputView = m.topics.View()
+		case viewDifficulty:
+			currentInputView = m.difficulty.View()
+		case viewQuestionID:
+			currentInputView = "Question ID:\n" + focusedStyle.Render(m.questionIDInput.View())
+		case viewTime:
+			currentInputView = "Time Spent (minutes):\n" + focusedStyle.Render(m.timeInput.View())
+		case viewNotes:
+			// CORRECTED: The typo is fixed here.
+			currentInputView = "Notes:\n" + focusedStyle.Render(m.notesInput.View())
+		default: // viewMain
+			currentInputView = m.mainMenu.View()
+		}
+		b.WriteString(summaryStyle.Render(summary) + "\n\n" + currentInputView)
 	}
 
-	return summaryStyle.Render(summary) + "\n\n" + currentView
+	if m.errorMsg != "" {
+		b.WriteString("\n\n" + errorStyle.Render(m.errorMsg))
+	}
+
+	return b.String()
 }
