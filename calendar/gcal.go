@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/Harschmann/Todo-/model"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -88,4 +89,35 @@ func GetCalendarService() (*calendar.Service, error) {
 		return nil, fmt.Errorf("unable to retrieve Calendar client: %w", err)
 	}
 	return srv, nil
+}
+
+// AddLogToCalendar creates a new event on the user's calendar from a log entry.
+func AddLogToCalendar(logEntry *model.Log) error {
+	// 1. Get the authenticated calendar service.
+	srv, err := GetCalendarService()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve Calendar client: %w", err)
+	}
+
+	// 2. Create a new event object and populate it with data from the log.
+	event := &calendar.Event{
+		Summary:     fmt.Sprintf("CP: %s (%s)", logEntry.QuestionID, logEntry.Platform),
+		Description: fmt.Sprintf("Topic: %s\nDifficulty: %s\nTime Spent: %d mins\n\nNotes:\n%s", logEntry.Topic, logEntry.Difficulty, logEntry.TimeSpent, logEntry.Notes),
+		Start: &calendar.EventDateTime{
+			// Format the date for an all-day event.
+			Date: logEntry.Date.Format("2006-01-02"),
+		},
+		End: &calendar.EventDateTime{
+			Date: logEntry.Date.Format("2006-01-02"),
+		},
+	}
+
+	// 3. Insert the event into the user's "primary" calendar.
+	_, err = srv.Events.Insert("primary", event).Do()
+	if err != nil {
+		return fmt.Errorf("unable to create event: %w", err)
+	}
+
+	fmt.Println("Event created successfully on Google Calendar!")
+	return nil
 }
