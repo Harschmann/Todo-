@@ -72,8 +72,10 @@ func (d menuItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 
 type logListItem model.Log
 
-func (l logListItem) FilterValue() string { return l.QuestionID }
-func (l logListItem) Title() string       { return l.QuestionID }
+func (l logListItem) FilterValue() string {
+	return fmt.Sprintf("%s %s %s %s", l.QuestionID, l.Platform, l.Topic, l.Difficulty)
+}
+func (l logListItem) Title() string { return l.QuestionID }
 func (l logListItem) Description() string {
 	return fmt.Sprintf("%s | %s | %s | %s", l.Platform, l.Topic, l.Difficulty, l.Date.Format("2006-01-02"))
 }
@@ -151,9 +153,11 @@ func NewForm() formModel {
 	logDelegate.Styles.DimmedDesc = descriptionStyle
 	logsList := list.New(logItems, logDelegate, defaultWidth, 14)
 	logsList.Title = "Saved Logs"
+
+	// UPDATED: Changed edit key to ctrl+e
 	logsList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+			key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit")),
 			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "delete")),
 		}
 	}
@@ -186,12 +190,16 @@ func NewForm() formModel {
 		isEditing:       false,
 	}
 
-	lists := []*list.Model{&m.mainMenu, &m.platforms, &m.topics, &m.difficulty, &m.logsList}
-	for _, l := range lists {
+	formLists := []*list.Model{&m.mainMenu, &m.platforms, &m.topics, &m.difficulty}
+	for _, l := range formLists {
 		l.SetShowStatusBar(false)
 		l.SetShowFilter(false)
 		l.SetShowPagination(false)
 	}
+
+	m.logsList.SetShowStatusBar(false)
+	m.logsList.SetShowFilter(true)
+	m.logsList.SetShowPagination(true)
 
 	return m
 }
@@ -269,7 +277,6 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							log.Fatal(err)
 						}
 					}
-					// CORRECTED: This now returns a fresh form, which starts at the main menu.
 					return NewForm(), tea.ClearScreen
 				case "View Logs":
 					m.currentView = viewLogs
@@ -299,26 +306,37 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case viewLogs:
+			if m.logsList.FilterState() != list.Filtering {
+				switch msg.String() {
+				// UPDATED: Changed edit key to ctrl+e
+				case "ctrl+e":
+					if len(m.logsList.Items()) > 0 {
+						selected := m.logsList.SelectedItem().(logListItem)
+						m.isEditing = true
+						m.editingLogDate = selected.Date
+						m.logEntry = model.Log(selected)
+						m.questionIDInput.SetValue(selected.QuestionID)
+						m.timeInput.SetValue(strconv.Itoa(selected.TimeSpent))
+						m.notesInput.SetValue(selected.Notes)
+						m.currentView = viewMain
+						return m, nil
+					}
+				case "ctrl+d":
+					if len(m.logsList.Items()) > 0 {
+						selected := m.logsList.SelectedItem().(logListItem)
+						m.selectedLog = model.Log(selected)
+						m.currentView = viewConfirmDelete
+						return m, nil
+					}
+				}
+			}
 			switch msg.String() {
 			case "enter":
-				selected := m.logsList.SelectedItem().(logListItem)
-				m.selectedLog = model.Log(selected)
-				m.currentView = viewLogDetails
-				return m, nil
-			case "ctrl+d":
-				selected := m.logsList.SelectedItem().(logListItem)
-				m.selectedLog = model.Log(selected)
-				m.currentView = viewConfirmDelete
-				return m, nil
-			case "e":
-				selected := m.logsList.SelectedItem().(logListItem)
-				m.isEditing = true
-				m.editingLogDate = selected.Date
-				m.logEntry = model.Log(selected)
-				m.questionIDInput.SetValue(selected.QuestionID)
-				m.timeInput.SetValue(strconv.Itoa(selected.TimeSpent))
-				m.notesInput.SetValue(selected.Notes)
-				m.currentView = viewMain
+				if len(m.logsList.Items()) > 0 {
+					selected := m.logsList.SelectedItem().(logListItem)
+					m.selectedLog = model.Log(selected)
+					m.currentView = viewLogDetails
+				}
 				return m, nil
 			case "tab":
 				m.currentView = viewMain
