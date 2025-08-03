@@ -90,10 +90,10 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-// AddLogToCalendar creates a new event on the user's calendar.
-func AddLogToCalendar(logEntry *model.Log) error {
+// CORRECTED: This function now uses the global srv variable
+func AddLogToCalendar(logEntry *model.Log) (string, error) {
 	if srv == nil {
-		return fmt.Errorf("calendar service not initialized")
+		return "", fmt.Errorf("calendar service not initialized")
 	}
 
 	event := &calendar.Event{
@@ -103,9 +103,18 @@ func AddLogToCalendar(logEntry *model.Log) error {
 		End:         &calendar.EventDateTime{Date: logEntry.Date.Format("2006-01-02")},
 	}
 
-	_, err := srv.Events.Insert("primary", event).Do()
+	createdEvent, err := srv.Events.Insert("primary", event).Do()
 	if err != nil {
-		return fmt.Errorf("unable to create event: %w", err)
+		return "", fmt.Errorf("unable to create event: %w", err)
 	}
-	return nil
+
+	return createdEvent.Id, nil
+}
+
+// CORRECTED: This function now uses the global srv variable
+func DeleteCalendarEvent(eventID string) error {
+	if srv == nil {
+		return fmt.Errorf("calendar service not initialized")
+	}
+	return srv.Events.Delete("primary", eventID).Do()
 }

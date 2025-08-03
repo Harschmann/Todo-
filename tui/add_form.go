@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Harschmann/Todo-/calendar" // ADDED
+	"github.com/Harschmann/Todo-/calendar"
 	"github.com/Harschmann/Todo-/db"
 	"github.com/Harschmann/Todo-/model"
 	"github.com/charmbracelet/bubbles/key"
@@ -267,8 +267,22 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, clearErrorAfter(2 * time.Second)
 					}
 
-					if m.isEditing {
+					// Set date before saving
+					if !m.isEditing {
+						m.logEntry.Date = time.Now()
+					} else {
 						m.logEntry.Date = m.editingLogDate
+					}
+
+					// CORRECTED: Handle two return values from AddLogToCalendar
+					eventID, err := calendar.AddLogToCalendar(&m.logEntry)
+					if err != nil {
+						m.errorMsg = fmt.Sprintf("Calendar Error: %v", err)
+						return m, clearErrorAfter(5 * time.Second)
+					}
+					m.logEntry.CalendarEventID = eventID // Save the ID
+
+					if m.isEditing {
 						if err := db.UpdateLog(&m.logEntry); err != nil {
 							log.Fatal(err)
 						}
@@ -277,13 +291,6 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							log.Fatal(err)
 						}
 					}
-
-					// ADDED: Call to Google Calendar
-					if err := calendar.AddLogToCalendar(&m.logEntry); err != nil {
-						m.errorMsg = fmt.Sprintf("Calendar Error: %v", err)
-						return m, clearErrorAfter(5 * time.Second)
-					}
-
 					return NewForm(), tea.ClearScreen
 				case "View Logs":
 					m.currentView = viewLogs
@@ -358,6 +365,10 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewConfirmDelete:
 			switch msg.String() {
 			case "y", "Y":
+				// CORRECTED: Call DeleteCalendarEvent before deleting from local DB
+				if err := calendar.DeleteCalendarEvent(m.selectedLog.CalendarEventID); err != nil {
+					log.Printf("Could not delete calendar event (it may have been already deleted): %v", err)
+				}
 				if err := db.DeleteLog(m.selectedLog.Date); err != nil {
 					log.Fatal(err)
 				}
