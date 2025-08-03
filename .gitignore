@@ -9,3 +9,9 @@ tracker.db
 cptracker
 todoplusplus
 *.exe
+
+# Log files
+app.log
+
+# Backup directory
+backups/
