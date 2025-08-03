@@ -1,0 +1,11 @@
+# Secret credentials
+credentials.json
+token.json
+
+# Local database file
+tracker.db
+
+# Compiled binary
+cptracker
+todoplusplus
+*.exe
