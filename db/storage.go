@@ -9,6 +9,13 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// DailyStats holds the calculated statistics.
+type DailyStats struct {
+	SolvedToday int
+	TimeToday   int // in minutes
+	Streak      int
+}
+
 var db *bbolt.DB
 var logBucket = []byte("logs")
 
@@ -123,4 +130,31 @@ func UpdateLog(logEntry *model.Log) error {
 		// Save it to the bucket, overwriting the old value
 		return b.Put(key, encoded)
 	})
+}
+
+// GetTodaysStats calculates the number of questions solved and time spent today.
+func GetTodaysStats() (DailyStats, error) {
+	var stats DailyStats
+	allLogs, err := GetAllLogs()
+	if err != nil {
+		return stats, err
+	}
+
+	// Get the start of the current day (midnight) in the local timezone.
+	now := time.Now()
+	year, month, day := now.Date()
+	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+
+	// Loop through all logs and count the ones from today.
+	for _, logEntry := range allLogs {
+		if logEntry.Date.After(startOfDay) {
+			stats.SolvedToday++
+			stats.TimeToday += logEntry.TimeSpent
+		}
+	}
+
+	// We will calculate the streak in a later step.
+	stats.Streak = 0 // Placeholder
+
+	return stats, nil
 }
