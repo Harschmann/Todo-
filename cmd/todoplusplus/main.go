@@ -5,17 +5,21 @@ import (
 	"log"
 	"os"
 
+	"github.com/Harschmann/Todo-/calendar" // Add this
 	"github.com/Harschmann/Todo-/db"
 	"github.com/Harschmann/Todo-/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	// Initialize the database before starting the UI.
 	if err := db.Init("tracker.db"); err != nil {
 		log.Fatal(err)
 	}
 
+	// First, run the one-time authentication flow if necessary.
+	calendar.Authenticate()
+
+	// Now that authentication is done, start the TUI.
 	initialModel := tui.NewForm()
 
 	p := tea.NewProgram(initialModel)

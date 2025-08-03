@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Harschmann/Todo-/calendar" // ADDED
 	"github.com/Harschmann/Todo-/db"
 	"github.com/Harschmann/Todo-/model"
 	"github.com/charmbracelet/bubbles/key"
@@ -153,8 +154,6 @@ func NewForm() formModel {
 	logDelegate.Styles.DimmedDesc = descriptionStyle
 	logsList := list.New(logItems, logDelegate, defaultWidth, 14)
 	logsList.Title = "Saved Logs"
-
-	// UPDATED: Changed edit key to ctrl+e
 	logsList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit")),
@@ -267,6 +266,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.errorMsg = "Error: Please fill out all fields before submitting."
 						return m, clearErrorAfter(2 * time.Second)
 					}
+
 					if m.isEditing {
 						m.logEntry.Date = m.editingLogDate
 						if err := db.UpdateLog(&m.logEntry); err != nil {
@@ -277,6 +277,13 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							log.Fatal(err)
 						}
 					}
+
+					// ADDED: Call to Google Calendar
+					if err := calendar.AddLogToCalendar(&m.logEntry); err != nil {
+						m.errorMsg = fmt.Sprintf("Calendar Error: %v", err)
+						return m, clearErrorAfter(5 * time.Second)
+					}
+
 					return NewForm(), tea.ClearScreen
 				case "View Logs":
 					m.currentView = viewLogs
@@ -308,7 +315,6 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewLogs:
 			if m.logsList.FilterState() != list.Filtering {
 				switch msg.String() {
-				// UPDATED: Changed edit key to ctrl+e
 				case "ctrl+e":
 					if len(m.logsList.Items()) > 0 {
 						selected := m.logsList.SelectedItem().(logListItem)

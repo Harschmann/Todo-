@@ -1,12 +1,14 @@
 package calendar
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/Harschmann/Todo-/model"
 	"golang.org/x/oauth2"
@@ -15,30 +17,51 @@ import (
 	"google.golang.org/api/option"
 )
 
-// getClient handles the complex OAuth2 flow.
-// It looks for a saved 'token.json' file, and if it can't find one,
-// it prompts the user to authorize the app in their browser.
+var srv *calendar.Service // Service will be a global variable in this package
+
+// Authenticate runs the one-time login flow if needed.
+func Authenticate() {
+	ctx := context.Background()
+	b, err := os.ReadFile("credentials.json")
+	if err != nil {
+		log.Fatalf("Unable to read client secret file: %v", err)
+	}
+
+	config, err := google.ConfigFromJSON(b, calendar.CalendarEventsScope)
+	if err != nil {
+		log.Fatalf("Unable to parse client secret file to config: %v", err)
+	}
+	client := getClient(config)
+
+	srv, err = calendar.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		log.Fatalf("Unable to retrieve Calendar client: %v", err)
+	}
+}
+
 func getClient(config *oauth2.Config) *http.Client {
 	tokFile := "token.json"
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
+		fmt.Println("Google Calendar authentication is required.")
 		tok = getTokenFromWeb(config)
 		saveToken(tokFile, tok)
+		fmt.Println("Authentication successful! You won't need to do this again.")
 	}
 	return config.Client(context.Background(), tok)
 }
 
-// getTokenFromWeb prompts the user to visit a URL to grant access
-// and then exchanges the received code for an API token.
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then paste the "+
+	fmt.Printf("Go to the following link in your browser, grant permission, then paste the "+
 		"authorization code back here: \n\n%v\n\nAuthorization code: ", authURL)
 
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
+	reader := bufio.NewReader(os.Stdin)
+	authCode, err := reader.ReadString('\n')
+	if err != nil {
 		log.Fatalf("Unable to read authorization code: %v", err)
 	}
+	authCode = strings.TrimSpace(authCode)
 
 	tok, err := config.Exchange(context.TODO(), authCode)
 	if err != nil {
@@ -47,7 +70,6 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	return tok
 }
 
-// tokenFromFile retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -59,9 +81,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// saveToken saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		log.Fatalf("Unable to cache oauth token: %v", err)
@@ -70,54 +90,22 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-// GetCalendarService creates an authenticated Google Calendar service client.
-func GetCalendarService() (*calendar.Service, error) {
-	ctx := context.Background()
-	b, err := os.ReadFile("credentials.json")
-	if err != nil {
-		return nil, fmt.Errorf("unable to read client secret file: %w", err)
-	}
-
-	config, err := google.ConfigFromJSON(b, calendar.CalendarEventsScope)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
-	}
-	client := getClient(config)
-
-	srv, err := calendar.NewService(ctx, option.WithHTTPClient(client))
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve Calendar client: %w", err)
-	}
-	return srv, nil
-}
-
-// AddLogToCalendar creates a new event on the user's calendar from a log entry.
+// AddLogToCalendar creates a new event on the user's calendar.
 func AddLogToCalendar(logEntry *model.Log) error {
-	// 1. Get the authenticated calendar service.
-	srv, err := GetCalendarService()
-	if err != nil {
-		return fmt.Errorf("unable to retrieve Calendar client: %w", err)
+	if srv == nil {
+		return fmt.Errorf("calendar service not initialized")
 	}
 
-	// 2. Create a new event object and populate it with data from the log.
 	event := &calendar.Event{
 		Summary:     fmt.Sprintf("CP: %s (%s)", logEntry.QuestionID, logEntry.Platform),
 		Description: fmt.Sprintf("Topic: %s\nDifficulty: %s\nTime Spent: %d mins\n\nNotes:\n%s", logEntry.Topic, logEntry.Difficulty, logEntry.TimeSpent, logEntry.Notes),
-		Start: &calendar.EventDateTime{
-			// Format the date for an all-day event.
-			Date: logEntry.Date.Format("2006-01-02"),
-		},
-		End: &calendar.EventDateTime{
-			Date: logEntry.Date.Format("2006-01-02"),
-		},
+		Start:       &calendar.EventDateTime{Date: logEntry.Date.Format("2006-01-02")},
+		End:         &calendar.EventDateTime{Date: logEntry.Date.Format("2006-01-02")},
 	}
 
-	// 3. Insert the event into the user's "primary" calendar.
-	_, err = srv.Events.Insert("primary", event).Do()
+	_, err := srv.Events.Insert("primary", event).Do()
 	if err != nil {
 		return fmt.Errorf("unable to create event: %w", err)
 	}
-
-	fmt.Println("Event created successfully on Google Calendar!")
 	return nil
 }
