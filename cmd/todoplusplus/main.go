@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/Harschmann/Todo-/calendar"
-	"github.com/Harschmann/Todo-/core" // Add this import back
+	"github.com/Harschmann/Todo-/core"
 	"github.com/Harschmann/Todo-/db"
 	"github.com/Harschmann/Todo-/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,10 +19,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Add this line back to start the backup service
-	go core.StartPeriodicBackups()
-
+	// CORRECTED ORDER: Authenticate FIRST...
 	calendar.Authenticate()
+
+	// ...then start the background services that USE the authentication.
+	go core.StartPeriodicBackups()
+	go core.StartDailyReminder()
 
 	initialModel := tui.NewForm()
 

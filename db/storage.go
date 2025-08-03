@@ -102,24 +102,65 @@ func UpdateLog(logEntry *model.Log) error {
 	})
 }
 
-// NOTE: We reverted the stats features, so this can be removed or kept for later.
-// To keep things simple, let's keep it but it won't be used by the TUI.
-func GetTodaysStats() (DailyStats, error) {
+// ADD THIS HELPER FUNCTION
+// normalizeDate returns the given time at the beginning of the day (00:00:00).
+func normalizeDate(t time.Time) time.Time {
+	year, month, day := t.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+}
+
+// ADD THIS FUNCTION
+func calculateStreak(logs []model.Log) int {
+	if len(logs) == 0 {
+		return 0
+	}
+
+	// 1. Get all unique, normalized dates from the logs.
+	uniqueDates := make(map[time.Time]bool)
+	for _, logEntry := range logs {
+		uniqueDates[normalizeDate(logEntry.Date)] = true
+	}
+
+	// 2. Start checking from today.
+	streak := 0
+	dayToCheck := normalizeDate(time.Now())
+
+	// If there are no logs for today, the streak might have ended yesterday.
+	if !uniqueDates[dayToCheck] {
+		dayToCheck = dayToCheck.AddDate(0, 0, -1)
+	}
+
+	// 3. Count backwards through consecutive days.
+	for uniqueDates[dayToCheck] {
+		streak++
+		dayToCheck = dayToCheck.AddDate(0, 0, -1) // Go to the previous day.
+	}
+
+	return streak
+}
+
+// REPLACE your old GetTodaysStats function with this one.
+func GetDailyStats() (DailyStats, error) {
 	var stats DailyStats
 	allLogs, err := GetAllLogs()
 	if err != nil {
 		return stats, err
 	}
+
 	now := time.Now()
-	year, month, day := now.Date()
-	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+	startOfDay := normalizeDate(now)
+
+	// Calculate stats for today
 	for _, logEntry := range allLogs {
 		if logEntry.Date.After(startOfDay) {
 			stats.SolvedToday++
 			stats.TimeToday += logEntry.TimeSpent
 		}
 	}
-	stats.Streak = 0 // Placeholder
+
+	// Calculate the streak
+	stats.Streak = calculateStreak(allLogs)
+
 	return stats, nil
 }
 
