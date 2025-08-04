@@ -16,3 +16,6 @@ cron.log
 
 # Backup directory
 backups/
+
+# GoReleaser distribution folder
+dist/
