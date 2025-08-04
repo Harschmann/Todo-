@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"    // Add this import
+	"strings" // Add this import
 	"time"
 
 	"github.com/Harschmann/Todo-/model"
@@ -22,7 +24,7 @@ type DailyStats struct {
 var db *bbolt.DB
 var logBucket = []byte("logs")
 
-// Init opens the database file and creates the necessary buckets.
+// ... (Init, SaveLog, GetAllLogs, DeleteLog, UpdateLog, and the Stats functions remain the same) ...
 func Init(dbPath string) error {
 	var err error
 	db, err = bbolt.Open(dbPath, 0600, nil)
@@ -38,7 +40,6 @@ func Init(dbPath string) error {
 		return nil
 	})
 }
-
 func SaveLog(logEntry *model.Log) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(logBucket)
@@ -54,7 +55,6 @@ func SaveLog(logEntry *model.Log) error {
 		return b.Put(key, encoded)
 	})
 }
-
 func GetAllLogs() ([]model.Log, error) {
 	var logs []model.Log
 	err := db.View(func(tx *bbolt.Tx) error {
@@ -75,7 +75,6 @@ func GetAllLogs() ([]model.Log, error) {
 	}
 	return logs, nil
 }
-
 func DeleteLog(date time.Time) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(logBucket)
@@ -86,7 +85,6 @@ func DeleteLog(date time.Time) error {
 		return b.Delete(key)
 	})
 }
-
 func UpdateLog(logEntry *model.Log) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(logBucket)
@@ -101,81 +99,56 @@ func UpdateLog(logEntry *model.Log) error {
 		return b.Put(key, encoded)
 	})
 }
-
-// ADD THIS HELPER FUNCTION
-// normalizeDate returns the given time at the beginning of the day (00:00:00).
 func normalizeDate(t time.Time) time.Time {
 	year, month, day := t.Date()
 	return time.Date(year, month, day, 0, 0, 0, 0, t.Location())
 }
-
-// ADD THIS FUNCTION
 func calculateStreak(logs []model.Log) int {
 	if len(logs) == 0 {
 		return 0
 	}
-
-	// 1. Get all unique, normalized dates from the logs.
 	uniqueDates := make(map[time.Time]bool)
 	for _, logEntry := range logs {
 		uniqueDates[normalizeDate(logEntry.Date)] = true
 	}
-
-	// 2. Start checking from today.
 	streak := 0
 	dayToCheck := normalizeDate(time.Now())
-
-	// If there are no logs for today, the streak might have ended yesterday.
 	if !uniqueDates[dayToCheck] {
 		dayToCheck = dayToCheck.AddDate(0, 0, -1)
 	}
-
-	// 3. Count backwards through consecutive days.
 	for uniqueDates[dayToCheck] {
 		streak++
-		dayToCheck = dayToCheck.AddDate(0, 0, -1) // Go to the previous day.
+		dayToCheck = dayToCheck.AddDate(0, 0, -1)
 	}
-
 	return streak
 }
-
-// REPLACE your old GetTodaysStats function with this one.
 func GetDailyStats() (DailyStats, error) {
 	var stats DailyStats
 	allLogs, err := GetAllLogs()
 	if err != nil {
 		return stats, err
 	}
-
 	now := time.Now()
 	startOfDay := normalizeDate(now)
-
-	// Calculate stats for today
 	for _, logEntry := range allLogs {
 		if logEntry.Date.After(startOfDay) {
 			stats.SolvedToday++
 			stats.TimeToday += logEntry.TimeSpent
 		}
 	}
-
-	// Calculate the streak
 	stats.Streak = calculateStreak(allLogs)
-
 	return stats, nil
 }
 
-// BackupToJSON reads all logs and writes them to a timestamped JSON file.
+// UPDATED: This function now includes the backup rotation logic.
 func BackupToJSON() error {
 	logs, err := GetAllLogs()
 	if err != nil {
 		return fmt.Errorf("could not get logs for backup: %w", err)
 	}
-
-	// CORRECTED: Ensure we write `[]` instead of `null` for empty backups.
 	if logs == nil {
 		logs = []model.Log{}
 	}
-
 	data, err := json.MarshalIndent(logs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not marshal logs to JSON: %w", err)
@@ -186,12 +159,36 @@ func BackupToJSON() error {
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("could not create backup directory: %w", err)
 	}
-
 	filePath := filepath.Join(backupDir, filename)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("could not write backup file: %w", err)
 	}
-
 	log.Printf("Successfully created backup: %s", filePath)
+
+	// --- ADDED: Backup Rotation Logic ---
+	const maxBackups = 10
+	files, err := os.ReadDir(backupDir)
+	if err != nil {
+		return fmt.Errorf("could not read backup directory: %w", err)
+	}
+
+	// Filter for our backup files and sort them by name (oldest first)
+	var backupFiles []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "backup-") && strings.HasSuffix(file.Name(), ".json") {
+			backupFiles = append(backupFiles, file.Name())
+		}
+	}
+	sort.Strings(backupFiles)
+
+	// If we have more backups than the max, delete the oldest ones
+	if len(backupFiles) > maxBackups {
+		filesToDelete := backupFiles[:len(backupFiles)-maxBackups]
+		for _, f := range filesToDelete {
+			log.Printf("Deleting old backup: %s", f)
+			os.Remove(filepath.Join(backupDir, f))
+		}
+	}
+
 	return nil
 }

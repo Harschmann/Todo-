@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag" // Add this import
 	"fmt"
 	"log"
 	"os"
@@ -13,25 +14,35 @@ import (
 )
 
 func main() {
-	setupLogging()
+	// 1. Define and parse the --reminder flag
+	reminderFlag := flag.Bool("reminder", false, "Send a reminder email if no log is present for today.")
+	flag.Parse()
 
+	// 2. Perform setup common to both modes
+	setupLogging()
 	if err := db.Init("tracker.db"); err != nil {
 		log.Fatal(err)
 	}
-
-	// CORRECTED ORDER: Authenticate FIRST...
 	calendar.Authenticate()
 
-	// ...then start the background services that USE the authentication.
-	go core.StartPeriodicBackups()
-	go core.StartDailyReminder()
+	// 3. Check which mode to run in
+	if *reminderFlag {
+		// --- Reminder Mode ---
+		log.Println("Running in reminder-only mode...")
+		core.CheckAndSendReminder()
+		log.Println("Reminder check complete.")
+	} else {
+		// --- TUI Mode ---
+		// Start background services
+		go core.StartPeriodicBackups()
 
-	initialModel := tui.NewForm()
-
-	p := tea.NewProgram(initialModel)
-	if _, err := p.Run(); err != nil {
-		fmt.Println("Error running program:", err)
-		os.Exit(1)
+		// Start the TUI
+		initialModel := tui.NewForm()
+		p := tea.NewProgram(initialModel)
+		if _, err := p.Run(); err != nil {
+			fmt.Println("Error running program:", err)
+			os.Exit(1)
+		}
 	}
 }
 

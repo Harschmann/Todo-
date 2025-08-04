@@ -12,10 +12,10 @@ import (
 func StartPeriodicBackups() {
 	// For testing, we'll use a short interval.
 	// For production, you would change this to time.Hour.
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 
-	log.Println("Periodic backup service started. A backup will be created every 30 seconds.")
+	log.Println("Periodic backup service started. A backup will be created every 30 minutes.")
 
 	// This loop will run forever in the background.
 	for range ticker.C {

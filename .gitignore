@@ -12,6 +12,7 @@ todoplusplus
 
 # Log files
 app.log
+cron.log
 
 # Backup directory
 backups/
