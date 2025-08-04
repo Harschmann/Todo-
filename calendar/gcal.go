@@ -3,15 +3,18 @@ package calendar
 import (
 	"bufio"
 	"context"
-	_ "embed" // Add this for embedding credentials
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
+	"mime"
 	"net/http"
 	"os"
-	"path/filepath" // Add this
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Harschmann/Todo-/model"
 	"golang.org/x/oauth2"
@@ -26,16 +29,17 @@ var credentialsFile []byte
 
 var calSrv *calendar.Service
 var gmailSrv *gmail.Service
+var rng *rand.Rand
 
-// UPDATED: Authenticate now takes the appDataDir to know where to store the user's token.
 func Authenticate(appDataDir string) {
 	ctx := context.Background()
+	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	config, err := google.ConfigFromJSON(credentialsFile, calendar.CalendarEventsScope, gmail.GmailSendScope, gmail.GmailReadonlyScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
-	client := getClient(config, appDataDir) // Pass the path along
+	client := getClient(config, appDataDir)
 
 	calSrv, err = calendar.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
@@ -48,9 +52,9 @@ func Authenticate(appDataDir string) {
 	}
 }
 
-// UPDATED: getClient now uses the appDataDir for the token file path.
+// ... (getClient and other helper functions remain the same) ...
 func getClient(config *oauth2.Config, appDataDir string) *http.Client {
-	tokFile := filepath.Join(appDataDir, "token.json") // Use the correct path
+	tokFile := filepath.Join(appDataDir, "token.json")
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
@@ -58,8 +62,6 @@ func getClient(config *oauth2.Config, appDataDir string) *http.Client {
 	}
 	return config.Client(context.Background(), tok)
 }
-
-// ... (getTokenFromWeb, tokenFromFile, saveToken, and the API functions remain the same) ...
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	fmt.Printf("Go to the following link in your browser, grant permission, then paste the "+
@@ -117,23 +119,51 @@ func DeleteCalendarEvent(eventID string) error {
 	}
 	return calSrv.Events.Delete("primary", eventID).Do()
 }
+
+// UPDATED: This function now correctly encodes the subject line.
 func SendReminderEmail() error {
 	if gmailSrv == nil {
 		return fmt.Errorf("gmail service not initialized")
 	}
+
 	profile, err := gmailSrv.Users.GetProfile("me").Do()
 	if err != nil {
 		return fmt.Errorf("could not get user profile: %w", err)
 	}
+
+	livelySubjects := []string{
+		"Your Streak is Calling! 🔥",
+		"A Wild Problem Appears! 🧩",
+		"Don't Let Your Brain Go AFK! 🧠",
+		"Psst... Your Keyboard Misses You ⌨️",
+	}
+	livelyBodies := []string{
+		"Just a friendly nudge from your todoplusplus tracker. You haven't logged a problem yet today. Keep that amazing streak going! You got this! 💪",
+		"The day is almost over, but there's still time to conquer a problem! Your future self will thank you. Happy coding! ✨",
+		"Your daily problem-solving quest awaits! Don't let your skills get rusty. Go solve something awesome! 🚀",
+	}
+
+	subject := livelySubjects[rng.Intn(len(livelySubjects))]
+	body := livelyBodies[rng.Intn(len(livelyBodies))]
+
+	// CORRECTED: Use mime.BEncoding to properly encode the subject.
+	encodedSubject := mime.BEncoding.Encode("UTF-8", subject)
+
 	messageStr := fmt.Sprintf("To: %s\r\n"+
-		"Subject: CP Reminder from todoplusplus!\r\n"+
+		"Subject: %s\r\n"+
+		"Content-Type: text/plain; charset=\"UTF-8\"\r\n"+ // Also good to add content type for body
 		"\r\n"+
-		"Don't forget to solve a problem today to keep your streak going!", profile.EmailAddress)
-	message := gmail.Message{Raw: base64.URLEncoding.EncodeToString([]byte(messageStr))}
+		"%s", profile.EmailAddress, encodedSubject, body)
+
+	message := gmail.Message{
+		Raw: base64.URLEncoding.EncodeToString([]byte(messageStr)),
+	}
+
 	_, err = gmailSrv.Users.Messages.Send("me", &message).Do()
 	if err != nil {
 		return fmt.Errorf("could not send email: %w", err)
 	}
+
 	log.Println("Reminder email sent successfully.")
 	return nil
 }
