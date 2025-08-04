@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Harschmann/Todo-/model"
+	"github.com/xuri/excelize/v2"
 	"go.etcd.io/bbolt"
 )
 
@@ -191,4 +192,45 @@ func BackupToJSON() error {
 	}
 
 	return nil
+}
+
+// ExportToExcel reads all logs and saves them to an Excel .xlsx file.
+func ExportToExcel() (string, error) {
+	logs, err := GetAllLogs()
+	if err != nil {
+		return "", fmt.Errorf("could not get logs for export: %w", err)
+	}
+
+	f := excelize.NewFile()
+	sheet := "Logs"
+	index, _ := f.NewSheet(sheet)
+
+	// Set header row
+	headers := []string{"Date", "Platform", "Question ID", "Topic", "Difficulty", "Time Spent (mins)", "Notes"}
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, header)
+	}
+
+	// Write data rows
+	for i, logEntry := range logs {
+		row := i + 2 // Start on the second row
+		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), logEntry.Date.Format("2006-01-02"))
+		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), logEntry.Platform)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), logEntry.QuestionID)
+		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), logEntry.Topic)
+		f.SetCellValue(sheet, fmt.Sprintf("E%d", row), logEntry.Difficulty)
+		f.SetCellValue(sheet, fmt.Sprintf("F%d", row), logEntry.TimeSpent)
+		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), logEntry.Notes)
+	}
+
+	f.SetActiveSheet(index)
+
+	// Save spreadsheet by the given path.
+	fileName := "todoplusplus_logs_export.xlsx"
+	if err := f.SaveAs(fileName); err != nil {
+		return "", err
+	}
+
+	return fileName, nil
 }
