@@ -3,12 +3,14 @@ package calendar
 import (
 	"bufio"
 	"context"
+	_ "embed" // Add this for embedding credentials
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath" // Add this
 	"strings"
 
 	"github.com/Harschmann/Todo-/model"
@@ -19,29 +21,21 @@ import (
 	"google.golang.org/api/option"
 )
 
+//go:embed credentials.json
+var credentialsFile []byte
+
 var calSrv *calendar.Service
 var gmailSrv *gmail.Service
 
-// Authenticate runs the one-time login flow if needed.
-// In calendar/gcal.go
-
-func Authenticate() {
+// UPDATED: Authenticate now takes the appDataDir to know where to store the user's token.
+func Authenticate(appDataDir string) {
 	ctx := context.Background()
-	b, err := os.ReadFile("credentials.json")
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
-	}
 
-	// UPDATED: Added gmail.GmailReadonlyScope to read the user's email address.
-	config, err := google.ConfigFromJSON(b,
-		calendar.CalendarEventsScope,
-		gmail.GmailSendScope,
-		gmail.GmailReadonlyScope,
-	)
+	config, err := google.ConfigFromJSON(credentialsFile, calendar.CalendarEventsScope, gmail.GmailSendScope, gmail.GmailReadonlyScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
-	client := getClient(config)
+	client := getClient(config, appDataDir) // Pass the path along
 
 	calSrv, err = calendar.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
@@ -54,17 +48,18 @@ func Authenticate() {
 	}
 }
 
-func getClient(config *oauth2.Config) *http.Client {
-	tokFile := "token.json"
+// UPDATED: getClient now uses the appDataDir for the token file path.
+func getClient(config *oauth2.Config, appDataDir string) *http.Client {
+	tokFile := filepath.Join(appDataDir, "token.json") // Use the correct path
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
-		fmt.Println("Google authentication is required.")
 		tok = getTokenFromWeb(config)
 		saveToken(tokFile, tok)
-		fmt.Println("Authentication successful! You won't need to do this again.")
 	}
 	return config.Client(context.Background(), tok)
 }
+
+// ... (getTokenFromWeb, tokenFromFile, saveToken, and the API functions remain the same) ...
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	fmt.Printf("Go to the following link in your browser, grant permission, then paste the "+
@@ -92,6 +87,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	return tok, err
 }
 func saveToken(path string, token *oauth2.Token) {
+	log.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		log.Fatalf("Unable to cache oauth token: %v", err)
@@ -99,7 +95,6 @@ func saveToken(path string, token *oauth2.Token) {
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
 }
-
 func AddLogToCalendar(logEntry *model.Log) (string, error) {
 	if calSrv == nil {
 		return "", fmt.Errorf("calendar service not initialized")
@@ -116,43 +111,29 @@ func AddLogToCalendar(logEntry *model.Log) (string, error) {
 	}
 	return createdEvent.Id, nil
 }
-
 func DeleteCalendarEvent(eventID string) error {
 	if calSrv == nil {
 		return fmt.Errorf("calendar service not initialized")
 	}
 	return calSrv.Events.Delete("primary", eventID).Do()
 }
-
-// UPDATED: This function now correctly sends the email.
 func SendReminderEmail() error {
 	if gmailSrv == nil {
 		return fmt.Errorf("gmail service not initialized")
 	}
-
-	// 1. Get the user's own email address.
 	profile, err := gmailSrv.Users.GetProfile("me").Do()
 	if err != nil {
 		return fmt.Errorf("could not get user profile: %w", err)
 	}
-
-	// 2. Compose the email message using the user's actual email.
 	messageStr := fmt.Sprintf("To: %s\r\n"+
 		"Subject: CP Reminder from todoplusplus!\r\n"+
 		"\r\n"+
 		"Don't forget to solve a problem today to keep your streak going!", profile.EmailAddress)
-
-	// 3. Base64 encode the message.
-	message := gmail.Message{
-		Raw: base64.URLEncoding.EncodeToString([]byte(messageStr)),
-	}
-
-	// 4. Send the message.
+	message := gmail.Message{Raw: base64.URLEncoding.EncodeToString([]byte(messageStr))}
 	_, err = gmailSrv.Users.Messages.Send("me", &message).Do()
 	if err != nil {
 		return fmt.Errorf("could not send email: %w", err)
 	}
-
 	log.Println("Reminder email sent successfully.")
 	return nil
 }

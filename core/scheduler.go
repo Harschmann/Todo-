@@ -18,7 +18,7 @@ func CheckAndSendReminder() {
 	}
 
 	if stats.SolvedToday == 0 {
-		log.Println("Condition met (0 problems solved today). Sending daily reminder email...")
+		log.Println("Condition met (0 pro`blems solved today). Sending daily reminder email...")
 		if err := calendar.SendReminderEmail(); err != nil {
 			log.Printf("Failed to send reminder email: %v", err)
 		}
