@@ -1,0 +1,55 @@
+# .goreleaser.yml
+version: 2
+
+project_name: todoplusplus
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/todoplusplus
+    ldflags:
+      - -s -w
+    binary: todoplusplus
+
+# CORRECTED: This section now creates specific archive types per OS.
+archives:
+  -
+    # Default format is tar.gz for Linux and macOS
+    format: tar.gz
+    # Override the format to zip ONLY for Windows builds
+    format_overrides:
+      - goos: windows
+        format: zip
+    # The rest of the configuration is the same
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  github:
+    owner: Harschmann
+    name: todoplusplus
+
+brews:
+  -
+    name: todoplusplus
+    repository:
+      owner: Harschmann
+      name: homebrew-tap
+      branch: main
+    description: "A TUI to track your competitive programming grind."
+    test: |
+      system "#{bin}/todoplusplus --help"
