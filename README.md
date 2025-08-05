@@ -1,20 +1,12 @@
-# todoplusplus 🚀
-
-A TUI (Terminal User Interface) to track your competitive programming grind, built with Go.
-
-![Screenshot](path/to/your/screenshot.png) ## Features
-
-* **Add, Edit, Delete & View Logs:** Full CRUD functionality for your problem logs.
-* **TUI Form:** A fast, multi-view terminal interface for data entry built with Bubbletea.
-* **Local Database:** All data is stored persistently in a local BoltDB database.
-* **Filtering:** The "View Logs" screen has a real-time filter to search by Question ID, Platform, Topic, or Difficulty.
-* **Google Calendar Sync:** Automatically creates and deletes a corresponding event on your Google Calendar for every log entry.
-* **Automated Reminders:** A background service sends a reminder email via the Gmail API on days you haven't solved a problem.
-* **Periodic Backups:** Automatically creates a JSON backup of your database every 30 minutes, with rotation to save the last 150 copies.
-* **Excel Export:** Export all your logs to an `.xlsx` file with a command-line flag.
-
-## Installation
-
-#### macOS / Linux (via Homebrew)
-```sh
-brew install Harschmann/tap/todoplusplus
+todoplusplus 🚀Tired of clunky spreadsheets or plain text files to track your competitive programming grind? todoplusplus is a blazingly fast, terminal-based application built in Go, designed to manage your entire CP journey without ever leaving the keyboard.It's local-first, powerful, and integrates with the tools you already use.🎥 Demo(Placeholder for your awesome feature demo video!)✨ Features💻 Sleek Terminal UI: A fast, multi-view terminal interface for all your actions, built with the powerful Bubbletea framework.💾 Local-First Database: All your data is stored securely and instantly on your own machine in an embedded BoltDB database. No cloud dependency for your core data.⚙️ Full CRUD Functionality: Add, view, edit, and delete your problem logs with a seamless, intuitive workflow.🔍 Real-time Filtering: Instantly search through hundreds of logs by Question ID, Platform, Topic, or Difficulty in the "View Logs" screen.🗓️ Google Calendar Sync: Automatically creates and deletes a corresponding event on your Google Calendar for every log entry, giving you a powerful visual overview of your consistency.📧 Smart Email Reminders: A background service can be configured to send a fun, randomized reminder via the Gmail API on days you forget to practice.📦 Automated Backups: Your database is automatically backed up periodically, with smart rotation to save the last 150 copies, ensuring your data is always safe.📄 Excel Export: Export all your logs to a clean .xlsx spreadsheet with a single command.🛠️ InstallationmacOS / Linux (via Homebrew)This is the recommended method for macOS and Linux users.Tap the repository (only needs to be done once):brew tap Harschmann/homebrew-tap
+Install the app:brew install todoplusplus
+To upgrade to the latest version in the future, just run brew upgrade todoplusplus.Windows / Other Systems (from GitHub Releases)Go to the Releases page.Download the latest .zip (for Windows) or .tar.gz (for Linux) file for your system's architecture (usually amd64).Unzip the file and place the todoplusplus executable somewhere in your system's PATH.🚀 UsageMain ApplicationTo start the main Terminal User Interface, simply run:todoplusplus
+Exporting DataTo export all your logs to an Excel file on your Desktop:todoplusplus --export
+Manual Reminder CheckTo manually trigger a reminder check (useful for testing):todoplusplus --reminder
+🔑 First-Time Login with GoogleThe very first time you run todoplusplus, it will need to connect to your Google Account to sync with your Calendar and send reminders.The application will pause and print a URL in your terminal.Copy this URL and paste it into your web browser.Sign in to your Google account and grant the requested permissions.After you grant permission, your browser will redirect to a localhost page that says "This site can’t be reached." This is normal! The authorization code is in the URL of this page.Look at the address bar in your browser. Copy the long string of characters between code= and the next &.Example URL: http://localhost/?state=state-token&code=4/0AVMBs...&scope=...You only need to copy the bolded part.Paste the code back into your terminal and press Enter.This is a one-time setup. The application will securely save an authentication token in a hidden system folder, and you will not have to do this again.🤖 Setting Up Automated Reminders (Optional)To get automatic email reminders, you need to set up your computer's task scheduler to run the app in reminder mode for you.macOS & Linux (cron)Open your terminal and type crontab -e to edit your cron file.Press i to enter insert mode.Add the following line. You must replace /path/to/your/app with the actual folder where the todoplusplus executable is located (if you used Homebrew, it's already in your PATH, so you can just use todoplusplus).# Send a CP reminder every day at 8 PM
+0 20 * * * /path/to/your/app/todoplusplus --reminder
+Press esc, then type :wq and press Enter to save.Windows (Task Scheduler)Open the Start Menu and search for Task Scheduler.In the "Actions" panel on the right, click Create Basic Task....Name: todoplusplus Daily Reminder.Trigger: Select Daily and set the time to 8:00:00 PM.Action: Select Start a program.Program/script: Click Browse... and find your todoplusplus.exe file.Add arguments (optional): Type exactly: --reminder.Click Finish.👨‍💻 For Developers (Building from Source)Interested in contributing? Here’s how to get the code and build it yourself.Clone the repository:git clone https://github.com/Harschmann/todoplusplus.git
+cd todoplusplus
+Build the binary:go build -o todoplusplus ./cmd/todoplusplus
+Run the application:./todoplusplus
+🔧 Tech StackLanguage: GoTUI Framework: Bubbletea & LipglossDatabase: BoltDB (embedded key-value store)Concurrency: Goroutines & TickersAPIs: Google Calendar API, Gmail API (with OAuth 2.0)Release Automation: GoReleaser & Homebrew
