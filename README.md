@@ -129,17 +129,43 @@ crontab -e
 
 3. Press `Esc`, type `:wq`, and press Enter to save.
 
-### Windows (Using Task Scheduler)
+---
 
-1. Open **Task Scheduler**.
-2. Click **Create Basic Task...**
-3. Set the following:
-   - **Name**: `todoplusplus Daily Reminder`
-   - **Trigger**: Daily at `8:00:00 PM`
-   - **Action**: Start a program
-   - **Program/script**: Browse to `todoplusplus.exe`
-   - **Add arguments**: `--reminder`
-4. Click **Finish**.
+### 🪟 Windows (Using Task Scheduler)
+
+To set up automatic email reminders on Windows:
+
+1. **Open Task Scheduler**  
+   Press `Win + S` and search for **Task Scheduler**, then open it.
+
+2. **Create a New Basic Task**  
+   In the right-hand panel, click **Create Basic Task...**
+
+3. **Set Name and Description**  
+   - **Name**: `todoplusplus Daily Reminder`  
+   - (Optional) Add a description like: _"Send daily CP reminder email"_
+
+4. **Set the Trigger**  
+   - Choose **Daily**
+   - Set the time to **8:00:00 PM**
+   - Click **Next**
+
+5. **Set the Action**  
+   - Choose **Start a program**
+   - Click **Next**
+
+6. **Configure the Program**  
+   - **Program/script**: Click **Browse** and select your `todoplusplus.exe` file  
+   - **Add arguments (optional)**:  
+     ```
+     --reminder
+     ```
+   - Click **Next**
+
+7. **Finish**  
+   Review the settings and click **Finish**
+
+✅ Windows will now run `todoplusplus --reminder` every day at 8 PM automatically.
 
 ---
 
@@ -173,4 +199,4 @@ go build -o todoplusplus ./cmd/todoplusplus
 
 ---
 
-🧠 Built with love by [@Harschmann](https://github.com/Harschmann)
+Built with ❤️ by [@Harschmann](https://github.com/Harschmann)
