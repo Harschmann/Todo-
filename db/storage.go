@@ -203,11 +203,12 @@ func BackupToJSON(appDataDir string) error {
 	}
 	return nil
 }
-func ExportToExcel(appDataDir string) (string, error) {
+func ExportToExcel() (string, error) {
 	logs, err := GetAllLogs()
 	if err != nil {
 		return "", fmt.Errorf("could not get logs for export: %w", err)
 	}
+
 	f := excelize.NewFile()
 	sheet := "Logs"
 	index, _ := f.NewSheet(sheet)
@@ -227,8 +228,18 @@ func ExportToExcel(appDataDir string) (string, error) {
 		f.SetCellValue(sheet, fmt.Sprintf("G%d", row), logEntry.Notes)
 	}
 	f.SetActiveSheet(index)
+
+	// Get the path to the user's home directory.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Construct the full path to the Desktop.
+	desktopPath := filepath.Join(homeDir, "Desktop")
 	fileName := "todoplusplus_logs_export.xlsx"
-	fullPath := filepath.Join(appDataDir, fileName)
+	fullPath := filepath.Join(desktopPath, fileName)
+
 	if err := f.SaveAs(fullPath); err != nil {
 		return "", err
 	}
