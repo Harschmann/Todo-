@@ -9,7 +9,7 @@ It’s **local-first**, powerful, and integrates with the tools you already use.
 
 ## 🎥 Demo
 
-> _(Placeholder for your awesome feature demo video!)_
+> ![Demo](assets/demo.gif)
 
 ---
 
